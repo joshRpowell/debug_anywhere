@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
     configuration, Dockerfile.dev, a debug controller/route, and a bin/debug
     orchestration script — all correctly configured out of the box.
   DESC
-  spec.homepage = "https://github.com/joshuapowell/debug_anywhere"
+  spec.homepage = "https://github.com/joshrpowell/debug_anywhere"
   spec.license  = "MIT"
 
   spec.metadata = {
