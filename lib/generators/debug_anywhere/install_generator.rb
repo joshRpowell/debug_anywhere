@@ -175,8 +175,10 @@ module DebugAnywhere
         ruby_version_path = File.join(destination_root, ".ruby-version")
         if File.exist?(ruby_version_path)
           version = File.read(ruby_version_path).strip
+          # Strip "ruby-" prefix written by rbenv (e.g. "ruby-3.4.7" → "3.4.7")
+          version = version.sub(/\Aruby-/, "")
           unless version.match?(/\A\d+\.\d+\.\d+\z/)
-            raise Thor::Error, ".ruby-version contains an unexpected value: #{version.inspect}. Expected format: X.Y.Z"
+            raise Thor::Error, ".ruby-version contains an unexpected value: #{version.inspect}. Expected format: X.Y.Z or ruby-X.Y.Z"
           end
           version
         else

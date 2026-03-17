@@ -60,7 +60,17 @@ class InstallGeneratorTest < Rails::Generators::TestCase
       assert_match "COPY Gemfile Gemfile.lock ./", content
       assert_match "COPY .ruby-version ./", content
       assert_match "groupadd --system --gid 1000 rails", content
+      assert_match "chown -R rails:rails /rails /usr/local/bundle", content
+      assert_no_match(/BUNDLE_PATH=\/rails/, content)
       assert_match "USER rails", content
+    end
+  end
+
+  test "creates Dockerfile.dev when .ruby-version uses rbenv ruby- prefix" do
+    File.write "#{destination_root}/.ruby-version", "ruby-3.4.7"
+    run_generator
+    assert_file "Dockerfile.dev" do |content|
+      assert_match "FROM ruby:3.4.7-slim", content
     end
   end
 

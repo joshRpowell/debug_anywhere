@@ -8,7 +8,8 @@ RUN apt-get update -qq && \
 WORKDIR /rails
 
 ENV RAILS_ENV=development
-ENV BUNDLE_PATH=/rails/vendor/bundle
+# BUNDLE_PATH left at default (/usr/local/bundle) so the bind mount (.:/rails)
+# does not overwrite gems installed during docker build.
 
 # Copy Gemfile first for better layer caching.
 # .ruby-version is required when Gemfile uses: ruby file: ".ruby-version"
@@ -22,7 +23,7 @@ COPY . .
 
 RUN groupadd --system --gid 1000 rails \
     && useradd --uid 1000 --gid 1000 --create-home rails \
-    && chown -R rails:rails /rails
+    && chown -R rails:rails /rails /usr/local/bundle
 USER rails
 
 EXPOSE 3000
