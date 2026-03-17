@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "rdbg",
+      "name": "Attach to Rails in Docker",
+      "request": "attach",
+      "debugPort": "localhost:<%= port %>",
+      "localfsMap": "/rails:${workspaceFolder}"
+    }
+  ]
+}

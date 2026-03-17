@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# bin/debug — Start Rails debug session and auto-attach VS Code
+# Requires: docker, docker compose, curl, nc, VS Code with ruby.vscode-rdbg extension.
+set -euo pipefail
+
+wait_for() {
+  local label=$1 check=$2
+  echo -n "Waiting for $label"
+  local attempts=0
+  until eval "$check"; do
+    echo -n "."
+    sleep 1
+    attempts=$((attempts + 1))
+    if [ $attempts -ge 30 ]; then
+      echo ""
+      echo "ERROR: $label did not respond after 30s. Check: docker compose logs"
+      exit 1
+    fi
+  done
+  echo " ready!"
+}
+
+echo "Starting Docker..."
+docker compose up -d
+
+wait_for "debug port <%= port %>" "nc -z localhost <%= port %> 2>/dev/null"
+wait_for "web server"             "curl -sf http://localhost:3000/up > /dev/null 2>&1"
+
+echo "Triggering VS Code attach..."
+if command -v code &>/dev/null; then
+  code --open-url "vscode://ruby.vscode-rdbg/attach?port=<%= port %>"
+else
+  echo "VS Code CLI ('code') not found."
+  echo "Attach manually: Run > Start Debugging > 'Attach to Rails in Docker'"
+fi
+
+echo "Opening debug trigger..."
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  open "http://localhost:3000/debug"
+elif command -v xdg-open &>/dev/null; then
+  xdg-open "http://localhost:3000/debug"
+else
+  echo "Open http://localhost:3000/debug in your browser"
+fi
+
+echo "Done. VS Code should attach and pause at binding.break shortly."

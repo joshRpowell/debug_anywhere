@@ -1,0 +1,4 @@
+
+  if Rails.env.development?
+    get "debug", to: "debug#trigger"
+  end
