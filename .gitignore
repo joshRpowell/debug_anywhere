@@ -1,0 +1,9 @@
+# ctags
+/tags
+*.tags
+
+# Bundler
+Gemfile.lock
+
+# Test artifacts
+/tmp/

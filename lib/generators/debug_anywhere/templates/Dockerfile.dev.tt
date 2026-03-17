@@ -8,10 +8,14 @@ RUN apt-get update -qq && \
 WORKDIR /rails
 
 ENV RAILS_ENV=development
+ENV BUNDLE_PATH=/rails/vendor/bundle
 
-# Copy version files before bundle install.
+# Copy Gemfile first for better layer caching.
 # .ruby-version is required when Gemfile uses: ruby file: ".ruby-version"
-COPY .ruby-version Gemfile Gemfile.lock ./
+COPY Gemfile Gemfile.lock ./
+<% if File.exist?(File.join(destination_root, ".ruby-version")) %>
+COPY .ruby-version ./
+<% end %>
 RUN bundle install
 
 COPY . .

@@ -19,18 +19,48 @@ module DebugAnywhere
         chmod "bin/debug", 0o755
       end
 
-      def patch_docker_compose
+      def create_docker_compose_debug
+        unless service.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,62}\z/)
+          raise Thor::Error, "--service '#{service}' is not a valid Docker Compose service name"
+        end
+
+        debug_compose = "docker-compose.debug.yml"
+        if File.exist?(File.join(destination_root, debug_compose))
+          say_status :skip, "#{debug_compose} already exists", :yellow
+          return
+        end
+        template "docker-compose.debug.yml.tt", debug_compose
+      end
+
+      def create_docker_compose
         compose_file = "docker-compose.yml"
         compose_path = File.join(destination_root, compose_file)
+        return if File.exist?(compose_path)
 
-        if File.exist?(compose_path)
-          if File.read(compose_path).include?("RUBY_DEBUG_OPEN")
-            say_status :skip, "#{compose_file} already contains RUBY_DEBUG_OPEN — skipping injection", :yellow
-            return
-          end
-          inject_into_docker_compose(compose_file)
-        else
-          create_minimal_docker_compose(compose_file)
+        create_file compose_file do
+          <<~YAML
+            # WARNING: LOCAL DEVELOPMENT ONLY — remove RUBY_DEBUG_* before any deployment.
+            services:
+              web:
+                build:
+                  context: .
+                  dockerfile: Dockerfile.dev
+                command: bundle exec rails server -b 0.0.0.0
+                volumes:
+                  - .:/rails
+                ports:
+                  - "127.0.0.1:3000:3000"
+                environment:
+                  RAILS_ENV: development
+
+            # Fixed subnet: matches config.web_console.permissions = "172.28.0.0/16"
+            networks:
+              default:
+                driver: bridge
+                ipam:
+                  config:
+                    - subnet: 172.28.0.0/16
+          YAML
         end
       end
 
@@ -49,6 +79,11 @@ module DebugAnywhere
 
       def inject_debug_route
         routes_path = File.join(destination_root, "config/routes.rb")
+        unless File.exist?(routes_path)
+          say_status :error, "config/routes.rb not found — skipping route injection", :red
+          return
+        end
+
         routes_content = File.read(routes_path)
 
         if routes_content.include?("debug#trigger")
@@ -57,22 +92,13 @@ module DebugAnywhere
         end
 
         inject_into_file "config/routes.rb",
-          after: "Rails.application.routes.draw do" do
-          "\n\n  if Rails.env.development?\n    get \"debug\", to: \"debug#trigger\"\n  end"
+          after: /Rails\.application\.routes\.draw do[^\n]*\n/ do
+          "\n  if Rails.env.development?\n    get \"debug\", to: \"debug#trigger\"\n  end\n"
         end
       end
 
       def create_debug_controller
-        create_file "app/controllers/debug_controller.rb" do
-          <<~RUBY
-            class DebugController < ApplicationController
-              def trigger
-                binding.break
-                render plain: "Resumed from breakpoint"
-              end
-            end
-          RUBY
-        end
+        template "debug_controller.rb.tt", "app/controllers/debug_controller.rb"
       end
 
       def update_dockerignore
@@ -87,14 +113,21 @@ module DebugAnywhere
       end
 
       def check_debug_gem
-        return if File.read(File.join(destination_root, "Gemfile")).match?(/gem\s+["']debug["']/)
+        gemfile_path = File.join(destination_root, "Gemfile")
+        unless File.exist?(gemfile_path)
+          say_status :warning, "Gemfile not found — skipping debug gem check", :yellow
+          return
+        end
+        return if File.read(gemfile_path).match?(/\bgem\s+["']debug["']/)
 
-        say ""
-        say_status :warning, "The 'debug' gem was not found in your Gemfile.", :red
-        say "  Add it to your Gemfile:"
-        say '    gem "debug", platforms: %i[mri windows], require: "debug/prelude"'
-        say "  Without it, binding.break will raise NoMethodError at runtime."
-        say ""
+        raise Thor::Error, <<~MSG
+          The 'debug' gem was not found in your Gemfile.
+          Add it before running this generator:
+
+              gem "debug", platforms: %i[mri windows], require: "debug/prelude"
+
+          Without it, binding.break will raise NoMethodError at runtime.
+        MSG
       end
 
       def print_post_install_notice
@@ -117,6 +150,7 @@ module DebugAnywhere
         say ""
         say "  Start debugging:"
         say "    bin/debug"
+        say "    (or manually: docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d)"
         say ""
         say "  Then open http://localhost:3000/debug in your browser."
         say "  VS Code will pause at binding.break in DebugController#trigger."
@@ -126,7 +160,11 @@ module DebugAnywhere
       private
 
       def port
-        options[:port]
+        p = options[:port].to_i
+        unless (1024..65535).include?(p)
+          raise Thor::Error, "--port must be between 1024 and 65535 (got #{options[:port].inspect})"
+        end
+        p
       end
 
       def service
@@ -136,85 +174,14 @@ module DebugAnywhere
       def ruby_version
         ruby_version_path = File.join(destination_root, ".ruby-version")
         if File.exist?(ruby_version_path)
-          File.read(ruby_version_path).strip
+          version = File.read(ruby_version_path).strip
+          unless version.match?(/\A\d+\.\d+\.\d+\z/)
+            raise Thor::Error, ".ruby-version contains an unexpected value: #{version.inspect}. Expected format: X.Y.Z"
+          end
+          version
         else
+          say_status :warning, ".ruby-version not found — using host Ruby #{RUBY_VERSION} for Dockerfile.dev", :yellow
           RUBY_VERSION
-        end
-      end
-
-      def inject_into_docker_compose(compose_file)
-        content = File.read(File.join(destination_root, compose_file))
-
-        unless content.include?("#{service}:")
-          say_status :error, "Service '#{service}' not found in #{compose_file}.", :red
-          say "  Run with --service=<name> to specify the correct service."
-          say "  Example: rails g debug_anywhere:install --service=app"
-          return
-        end
-
-        env_block = <<~YAML
-
-                # debug_anywhere: rdbg remote debug — do not deploy to production
-                RUBY_DEBUG_OPEN: "true"
-                RUBY_DEBUG_HOST: "127.0.0.1"
-                RUBY_DEBUG_PORT: "#{port}"
-                RUBY_DEBUG_NONSTOP: "1"
-                WEB_CONCURRENCY: "0"
-        YAML
-
-        port_entry = "      - \"127.0.0.1:#{port}:#{port}\"\n"
-
-        if content.include?("environment:")
-          inject_into_file compose_file, env_block,
-            after: /#{Regexp.escape(service)}:.*?\n(?:.*?\n)*?.*?environment:\n/m
-        else
-          inject_into_file compose_file,
-            "    environment:\n#{env_block}",
-            after: "  #{service}:\n"
-        end
-
-        if content.include?("ports:")
-          inject_into_file compose_file, port_entry,
-            after: /#{Regexp.escape(service)}:.*?\n(?:.*?\n)*?.*?ports:\n/m
-        else
-          inject_into_file compose_file,
-            "    ports:\n#{port_entry}",
-            after: "  #{service}:\n"
-        end
-      end
-
-      def create_minimal_docker_compose(compose_file)
-        create_file compose_file do
-          <<~YAML
-            # WARNING: LOCAL DEVELOPMENT ONLY — remove RUBY_DEBUG_* before any deployment.
-            services:
-              web:
-                build:
-                  context: .
-                  dockerfile: Dockerfile.dev
-                command: bundle exec rails server -b 0.0.0.0
-                volumes:
-                  - .:/rails
-                ports:
-                  - "127.0.0.1:3000:3000"
-                  - "127.0.0.1:#{port}:#{port}"
-                environment:
-                  RUBY_DEBUG_OPEN: "true"
-                  RUBY_DEBUG_HOST: "127.0.0.1"
-                  RUBY_DEBUG_PORT: "#{port}"
-                  RUBY_DEBUG_NONSTOP: "1"
-                  WEB_CONCURRENCY: "0"
-                  RAILS_ENV: development
-
-            # Fixed subnet: matches config.web_console.permissions = "172.28.0.0/16"
-            # in config/environments/development.rb. Do not change without updating that setting.
-            networks:
-              default:
-                driver: bridge
-                ipam:
-                  config:
-                    - subnet: 172.28.0.0/16
-          YAML
         end
       end
     end

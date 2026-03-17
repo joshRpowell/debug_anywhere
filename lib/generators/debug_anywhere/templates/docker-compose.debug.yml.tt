@@ -1,0 +1,12 @@
+# debug_anywhere: LOCAL DEVELOPMENT ONLY — do NOT deploy to production.
+# Run with: docker compose -f docker-compose.yml -f docker-compose.debug.yml up
+services:
+  <%= service %>:
+    ports:
+      - "127.0.0.1:<%= port %>:<%= port %>"
+    environment:
+      RUBY_DEBUG_OPEN: "true"
+      RUBY_DEBUG_HOST: "127.0.0.1"
+      RUBY_DEBUG_PORT: "<%= port %>"
+      RUBY_DEBUG_NONSTOP: "1"
+      WEB_CONCURRENCY: "0"

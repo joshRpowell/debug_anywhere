@@ -16,6 +16,12 @@ Gem::Specification.new do |spec|
   spec.homepage = "https://github.com/joshuapowell/debug_anywhere"
   spec.license  = "MIT"
 
+  spec.metadata = {
+    "source_code_uri"        => spec.homepage,
+    "changelog_uri"          => "#{spec.homepage}/blob/main/CHANGELOG.md",
+    "rubygems_mfa_required"  => "true"
+  }
+
   spec.required_ruby_version = ">= 3.1.0"
 
   spec.files = Dir[
@@ -27,5 +33,5 @@ Gem::Specification.new do |spec|
 
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "railties", ">= 7.0"
+  spec.add_development_dependency "railties", ">= 7.0"
 end

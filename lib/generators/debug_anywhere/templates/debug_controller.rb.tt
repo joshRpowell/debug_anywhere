@@ -1,0 +1,14 @@
+class DebugController < ApplicationController
+  before_action :development_only!
+
+  def trigger
+    binding.break
+    render plain: "Resumed from breakpoint"
+  end
+
+  private
+
+  def development_only!
+    head :forbidden unless Rails.env.development?
+  end
+end

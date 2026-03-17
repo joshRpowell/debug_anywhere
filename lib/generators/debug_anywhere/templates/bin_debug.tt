@@ -3,17 +3,33 @@
 # Requires: docker, docker compose, curl, nc, VS Code with ruby.vscode-rdbg extension.
 set -euo pipefail
 
-wait_for() {
-  local label=$1 check=$2
-  echo -n "Waiting for $label"
+wait_for_port() {
+  local port=$1
+  echo -n "Waiting for debug port $port"
   local attempts=0
-  until eval "$check"; do
+  until nc -z localhost "$port" 2>/dev/null; do
     echo -n "."
     sleep 1
     attempts=$((attempts + 1))
-    if [ $attempts -ge 30 ]; then
+    if [ "$attempts" -ge 30 ]; then
       echo ""
-      echo "ERROR: $label did not respond after 30s. Check: docker compose logs"
+      echo "ERROR: debug port $port did not respond after 30s. Check: docker compose logs"
+      exit 1
+    fi
+  done
+  echo " ready!"
+}
+
+wait_for_web() {
+  echo -n "Waiting for web server"
+  local attempts=0
+  until curl -sf http://localhost:3000/up > /dev/null 2>&1; do
+    echo -n "."
+    sleep 1
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 30 ]; then
+      echo ""
+      echo "ERROR: web server did not respond after 30s. Check: docker compose logs"
       exit 1
     fi
   done
@@ -21,10 +37,17 @@ wait_for() {
 }
 
 echo "Starting Docker..."
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
 
-wait_for "debug port <%= port %>" "nc -z localhost <%= port %> 2>/dev/null"
-wait_for "web server"             "curl -sf http://localhost:3000/up > /dev/null 2>&1"
+wait_for_port <%= port %>
+wait_for_web
+
+if [[ "${HEADLESS:-false}" == "true" ]]; then
+  echo "Headless mode: skipping VS Code and browser launch."
+  echo "Attach manually: Run > Start Debugging > 'Attach to Rails in Docker'"
+  echo "Then open: http://localhost:3000/debug"
+  exit 0
+fi
 
 echo "Triggering VS Code attach..."
 if command -v code &>/dev/null; then
