@@ -7,3 +7,7 @@ Gemfile.lock
 
 # Test artifacts
 /tmp/
+
+# Local tooling
+/.claude/
+/.gstack/
