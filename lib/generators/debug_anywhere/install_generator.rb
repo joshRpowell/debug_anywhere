@@ -13,6 +13,9 @@ module DebugAnywhere
       class_option :runtime, type: :string,  default: "docker", desc: "Container runtime (docker, podman)"
 
       def check_debug_gem
+        # Eagerly validate all options before touching the filesystem.
+        port; service; editor; runtime
+
         gemfile_path = File.join(destination_root, "Gemfile")
         unless File.exist?(gemfile_path)
           say_status :warning, "Gemfile not found — skipping debug gem check", :yellow

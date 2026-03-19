@@ -325,6 +325,18 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     assert_raises(Thor::Error) { run_generator ["--runtime=lima"], debug: true }
   end
 
+  test "no files created when --runtime is invalid" do
+    assert_raises(Thor::Error) { run_generator ["--runtime=lima"], debug: true }
+    assert_no_file ".vscode/launch.json"
+    assert_no_file "bin/debug"
+  end
+
+  test "no files created when --editor is invalid" do
+    assert_raises(Thor::Error) { run_generator ["--editor=vim"], debug: true }
+    assert_no_file ".vscode/launch.json"
+    assert_no_file "bin/debug"
+  end
+
   # ─── --status flag in generated bin/debug ───────────────────────────────────
 
   test "bin/debug contains --status flag handler" do
