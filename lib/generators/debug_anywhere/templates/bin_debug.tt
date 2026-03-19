@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# bin/debug — Start Rails debug session and auto-attach VS Code
-# Requires: docker, docker compose, curl, nc, VS Code with ruby.vscode-rdbg extension.
+# bin/debug — Start Rails debug session and auto-attach your debugger
+# Runtime: <%= runtime %> | Editor: <%= editor %>
+# Requires: <%= runtime %>, curl, nc<%= editor == "vscode" ? ", VS Code with ruby.vscode-rdbg extension" : editor == "zed" ? ", Zed" : editor == "rubymine" ? ", RubyMine" : "" %>.
 set -euo pipefail
 
 wait_for_port() {
@@ -13,7 +14,7 @@ wait_for_port() {
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 30 ]; then
       echo ""
-      echo "ERROR: debug port $port did not respond after 30s. Check: docker compose logs"
+      echo "ERROR: debug port $port did not respond after 30s. Check: <%= runtime %> compose logs"
       exit 1
     fi
   done
@@ -29,26 +30,48 @@ wait_for_web() {
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 30 ]; then
       echo ""
-      echo "ERROR: web server did not respond after 30s. Check: docker compose logs"
+      echo "ERROR: web server did not respond after 30s. Check: <%= runtime %> compose logs"
       exit 1
     fi
   done
   echo " ready!"
 }
 
-echo "Starting Docker..."
-docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d
+if [[ "${1:-}" == "--status" ]]; then
+  echo "debug_anywhere status:"
+  if nc -z localhost <%= port %> 2>/dev/null; then
+    echo "  ✓ debug port <%= port %> is open"
+  else
+    echo "  ✗ debug port <%= port %> is not open"
+  fi
+  if curl -sf http://localhost:3000/up > /dev/null 2>&1; then
+    echo "  ✓ web server is responding"
+  else
+    echo "  ✗ web server not responding (http://localhost:3000/up)"
+  fi
+  exit 0
+fi
+
+echo "Starting <%= runtime %>..."
+<%= runtime %> compose -f docker-compose.yml -f docker-compose.debug.yml up -d
 
 wait_for_port <%= port %>
 wait_for_web
 
 if [[ "${HEADLESS:-false}" == "true" ]]; then
-  echo "Headless mode: skipping VS Code and browser launch."
+  echo "Headless mode: skipping IDE and browser launch."
+<% if editor == "vscode" || editor == "zed" -%>
   echo "Attach manually: Run > Start Debugging > 'Attach to Rails in Docker'"
+<% elsif editor == "rubymine" -%>
+  echo "Attach manually: Run > Debug > 'Attach to Rails in Docker' in RubyMine"
+<% else -%>
+  echo "Attach your debugger to localhost:<%= port %> (rdbg TCP socket)"
+<% end -%>
   echo "Then open: http://localhost:3000/debug"
   exit 0
 fi
 
+<% if editor == "vscode" -%>
 echo "Triggering VS Code attach..."
 if command -v code &>/dev/null; then
   code --open-url "vscode://ruby.vscode-rdbg/attach?port=<%= port %>"
@@ -56,6 +79,20 @@ else
   echo "VS Code CLI ('code') not found."
   echo "Attach manually: Run > Start Debugging > 'Attach to Rails in Docker'"
 fi
+<% elsif editor == "zed" -%>
+echo "Triggering Zed attach..."
+if command -v zed &>/dev/null; then
+  zed --open-url "vscode://ruby.vscode-rdbg/attach?port=<%= port %>"
+else
+  echo "Zed CLI ('zed') not found."
+  echo "Attach manually: Run > Start Debugging > 'Attach to Rails in Docker'"
+fi
+<% elsif editor == "rubymine" -%>
+echo "Open RubyMine and run the 'Attach to Rails in Docker' debug configuration."
+echo "(Run > Debug > 'Attach to Rails in Docker')"
+<% else -%>
+echo "Attach your debugger to localhost:<%= port %> (rdbg TCP socket)."
+<% end -%>
 
 echo "Opening debug trigger..."
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -66,4 +103,4 @@ else
   echo "Open http://localhost:3000/debug in your browser"
 fi
 
-echo "Done. VS Code should attach and pause at binding.break shortly."
+echo "Done. Your debugger should attach and pause at binding.break shortly."

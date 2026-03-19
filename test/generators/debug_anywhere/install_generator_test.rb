@@ -251,4 +251,96 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     RUBY
     assert_raises(Thor::Error) { run_generator [], debug: true }
   end
+
+  test "raises error for invalid .ruby-version format" do
+    File.write "#{destination_root}/.ruby-version", "jruby-9.4"
+    assert_raises(Thor::Error) { run_generator [], debug: true }
+  end
+
+  test "skips route injection when config/routes.rb is absent" do
+    File.delete "#{destination_root}/config/routes.rb"
+    run_generator
+    assert_no_file "config/routes.rb"
+  end
+
+  # ─── --editor option ────────────────────────────────────────────────────────
+
+  test "--editor=vscode creates .vscode/launch.json (default)" do
+    run_generator ["--editor=vscode"]
+    assert_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+  end
+
+  test "--editor=zed creates .vscode/launch.json (Zed reads VS Code format)" do
+    run_generator ["--editor=zed"]
+    assert_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+  end
+
+  test "--editor=rubymine creates RubyMine run configuration" do
+    run_generator ["--editor=rubymine"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml" do |content|
+      assert_match "Attach to Rails in Docker", content
+      assert_match "REMOTE_PORT", content
+      assert_match "12345", content
+      assert_match "/rails", content
+    end
+    assert_no_file ".vscode/launch.json"
+  end
+
+  test "--editor=rubymine with custom port sets correct port in XML" do
+    run_generator ["--editor=rubymine", "--port=19999"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml" do |content|
+      assert_match "19999", content
+    end
+  end
+
+  test "--editor=manual skips IDE config creation" do
+    run_generator ["--editor=manual"]
+    assert_no_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+  end
+
+  test "raises error for unsupported --editor value" do
+    assert_raises(Thor::Error) { run_generator ["--editor=vim"], debug: true }
+  end
+
+  # ─── --runtime option ───────────────────────────────────────────────────────
+
+  test "--runtime=docker uses docker in bin/debug (default)" do
+    run_generator ["--runtime=docker"]
+    assert_file "bin/debug" do |content|
+      assert_match "docker compose", content
+    end
+  end
+
+  test "--runtime=podman uses podman in bin/debug" do
+    run_generator ["--runtime=podman"]
+    assert_file "bin/debug" do |content|
+      assert_match "podman compose", content
+    end
+  end
+
+  test "raises error for unsupported --runtime value" do
+    assert_raises(Thor::Error) { run_generator ["--runtime=lima"], debug: true }
+  end
+
+  # ─── --status flag in generated bin/debug ───────────────────────────────────
+
+  test "bin/debug contains --status flag handler" do
+    run_generator
+    assert_file "bin/debug" do |content|
+      assert_match '--status', content
+      assert_match "debug_anywhere status:", content
+      assert_match "debug port 12345 is open", content
+      assert_match "web server is responding", content
+    end
+  end
+
+  test "--status flag uses correct port when custom port set" do
+    run_generator ["--port=19999"]
+    assert_file "bin/debug" do |content|
+      assert_match "debug port 19999 is open", content
+    end
+  end
 end

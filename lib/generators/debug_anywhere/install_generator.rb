@@ -7,11 +7,38 @@ module DebugAnywhere
 
       desc "Scaffold rdbg remote debugging for Rails + Docker + VS Code"
 
-      class_option :port,    type: :numeric, default: 12345, desc: "rdbg TCP port"
-      class_option :service, type: :string,  default: "web",  desc: "docker-compose service name"
+      class_option :port,    type: :numeric, default: 12345,    desc: "rdbg TCP port"
+      class_option :service, type: :string,  default: "web",    desc: "docker-compose service name"
+      class_option :editor,  type: :string,  default: "vscode", desc: "IDE to configure (vscode, rubymine, zed, manual)"
+      class_option :runtime, type: :string,  default: "docker", desc: "Container runtime (docker, podman)"
 
-      def create_vscode_launch_json
-        template "launch.json.tt", ".vscode/launch.json"
+      def check_debug_gem
+        gemfile_path = File.join(destination_root, "Gemfile")
+        unless File.exist?(gemfile_path)
+          say_status :warning, "Gemfile not found — skipping debug gem check", :yellow
+          return
+        end
+        return if File.read(gemfile_path).match?(/\bgem\s+["']debug["']/)
+
+        raise Thor::Error, <<~MSG
+          The 'debug' gem was not found in your Gemfile.
+          Add it before running this generator:
+
+              gem "debug", platforms: %i[mri windows], require: "debug/prelude"
+
+          Without it, binding.break will raise NoMethodError at runtime.
+        MSG
+      end
+
+      def create_ide_config
+        case editor
+        when "vscode", "zed"
+          template "launch.json.tt", ".vscode/launch.json"
+        when "rubymine"
+          template "rubymine_debug.xml.tt", ".idea/runConfigurations/debug_anywhere.xml"
+        when "manual"
+          say_status :skip, "Skipping IDE config (--editor=manual)", :yellow
+        end
       end
 
       def create_bin_debug
@@ -20,10 +47,6 @@ module DebugAnywhere
       end
 
       def create_docker_compose_debug
-        unless service.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,62}\z/)
-          raise Thor::Error, "--service '#{service}' is not a valid Docker Compose service name"
-        end
-
         debug_compose = "docker-compose.debug.yml"
         if File.exist?(File.join(destination_root, debug_compose))
           say_status :skip, "#{debug_compose} already exists", :yellow
@@ -112,35 +135,29 @@ module DebugAnywhere
         append_to_file dockerignore, "\n#{entry}\n"
       end
 
-      def check_debug_gem
-        gemfile_path = File.join(destination_root, "Gemfile")
-        unless File.exist?(gemfile_path)
-          say_status :warning, "Gemfile not found — skipping debug gem check", :yellow
-          return
-        end
-        return if File.read(gemfile_path).match?(/\bgem\s+["']debug["']/)
-
-        raise Thor::Error, <<~MSG
-          The 'debug' gem was not found in your Gemfile.
-          Add it before running this generator:
-
-              gem "debug", platforms: %i[mri windows], require: "debug/prelude"
-
-          Without it, binding.break will raise NoMethodError at runtime.
-        MSG
-      end
-
       def print_post_install_notice
+        compose_cmd = "#{runtime} compose -f docker-compose.yml -f docker-compose.debug.yml up -d"
+
         say ""
         say "=" * 60
         say "  debug_anywhere installed!"
         say "=" * 60
         say ""
         say "  Prerequisites:"
-        say "    ✓ docker + docker compose CLI"
+        say "    ✓ #{runtime} + #{runtime} compose CLI"
         say "    ✓ nc (netcat) — used by bin/debug readiness check"
-        say "    ✓ VS Code extension: ruby.vscode-rdbg"
-        say "      Install: code --install-extension KoichiSasada.vscode-rdbg"
+        case editor
+        when "vscode"
+          say "    ✓ VS Code extension: ruby.vscode-rdbg"
+          say "      Install: code --install-extension KoichiSasada.vscode-rdbg"
+        when "zed"
+          say "    ✓ Zed with rdbg debug adapter support"
+        when "rubymine"
+          say "    ✓ RubyMine 2023.1+ with Ruby plugin"
+          say "      Run config: .idea/runConfigurations/debug_anywhere.xml"
+        when "manual"
+          say "    ✓ Your debugger, attached to localhost:#{port} (rdbg TCP)"
+        end
         say ""
         say "  web_console note:"
         say "    If web_console shows 'not allowed' from Docker, add to"
@@ -150,10 +167,11 @@ module DebugAnywhere
         say ""
         say "  Start debugging:"
         say "    bin/debug"
-        say "    (or manually: docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d)"
+        say "    bin/debug --status   # check if session is running"
+        say "    (or manually: #{compose_cmd})"
         say ""
         say "  Then open http://localhost:3000/debug in your browser."
-        say "  VS Code will pause at binding.break in DebugController#trigger."
+        say "  Execution will pause at binding.break in DebugController#trigger."
         say ""
       end
 
@@ -168,7 +186,29 @@ module DebugAnywhere
       end
 
       def service
-        options[:service]
+        s = options[:service]
+        unless s.match?(/\A[a-zA-Z0-9][a-zA-Z0-9_.\-]{0,62}\z/)
+          raise Thor::Error, "--service '#{s}' is not a valid Docker Compose service name"
+        end
+        s
+      end
+
+      def editor
+        e = options[:editor]
+        valid_editors = %w[vscode rubymine zed manual]
+        unless valid_editors.include?(e)
+          raise Thor::Error, "--editor '#{e}' is not supported. Valid options: #{valid_editors.join(", ")}"
+        end
+        e
+      end
+
+      def runtime
+        r = options[:runtime]
+        valid_runtimes = %w[docker podman]
+        unless valid_runtimes.include?(r)
+          raise Thor::Error, "--runtime '#{r}' is not supported. Valid options: #{valid_runtimes.join(", ")}"
+        end
+        r
       end
 
       def ruby_version
