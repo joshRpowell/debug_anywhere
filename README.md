@@ -1,6 +1,6 @@
 # debug_anywhere
 
-One-command rdbg remote debugging setup for Rails apps running in Docker with VS Code.
+One-command rdbg remote debugging setup for Rails apps running in Docker with VS Code, RubyMine, or Zed.
 
 ```bash
 bundle add debug_anywhere --group development
@@ -8,7 +8,7 @@ rails g debug_anywhere:install
 bin/debug
 ```
 
-That's it. VS Code attaches to the debugger and pauses at the next `binding.break`.
+That's it. Your IDE attaches to the debugger and pauses at the next `binding.break`.
 
 ## Installation
 
@@ -41,10 +41,11 @@ append  .dockerignore             Excludes .vscode/ from Docker build
 ### Start a debug session
 
 ```bash
-bin/debug
+bin/debug            # start containers and attach IDE
+bin/debug --status   # check if debug session is running (no launch)
 ```
 
-This starts Docker Compose, waits for the debugger socket and web server to be ready, triggers VS Code to attach, and opens the debug trigger URL in your browser.
+This starts Docker Compose, waits for the debugger socket and web server to be ready, triggers your IDE to attach, and opens the debug trigger URL in your browser.
 
 ### Trigger a breakpoint
 
@@ -61,19 +62,21 @@ end
 
 ## Prerequisites
 
-- Docker and `docker compose` CLI
+- Docker (or Podman) with `compose` CLI
 - `nc` (netcat) — used by `bin/debug` for port readiness checks
-- VS Code with the [ruby.vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg) extension
-
-  ```bash
-  code --install-extension KoichiSasada.vscode-rdbg
-  ```
-
 - The `debug` gem in your Gemfile (included by default in Rails 7.1+):
 
   ```ruby
   gem "debug", platforms: %i[mri windows], require: "debug/prelude"
   ```
+
+- **VS Code / Zed:** [ruby.vscode-rdbg](https://marketplace.visualstudio.com/items?itemName=KoichiSasada.vscode-rdbg) extension
+
+  ```bash
+  code --install-extension KoichiSasada.vscode-rdbg
+  ```
+
+- **RubyMine:** 2023.1+ with the Ruby plugin (run config generated at `.idea/runConfigurations/debug_anywhere.xml`)
 
 ## Options
 
@@ -81,10 +84,23 @@ end
 |---|---|---|
 | `--port` | `12345` | rdbg TCP port |
 | `--service` | `web` | docker-compose service name to target |
+| `--editor` | `vscode` | IDE config to generate: `vscode`, `rubymine`, `zed`, `manual` |
+| `--runtime` | `docker` | Container runtime: `docker` or `podman` |
 
 ```bash
-rails g debug_anywhere:install --port=19999 --service=app
+rails g debug_anywhere:install --port=19999 --service=app --editor=rubymine
+rails g debug_anywhere:install --runtime=podman
 ```
+
+## Uninstalling
+
+To remove all generated files and revert patches:
+
+```bash
+rails g debug_anywhere:uninstall
+```
+
+This removes `bin/debug`, `.vscode/launch.json` (or RubyMine config), `docker-compose.debug.yml`, and `app/controllers/debug_controller.rb`, and reverts the debug route in `config/routes.rb`. Docker-compose base files and `Dockerfile.dev` are preserved (you may have customized them).
 
 ## Security
 
@@ -110,11 +126,11 @@ This matches the pinned Docker subnet in the generated `docker-compose.yml`.
 
 ## How It Works
 
-1. `docker-compose.yml` sets `RUBY_DEBUG_OPEN: "true"` — Rails boots with an rdbg TCP socket on port 12345
+1. `docker-compose.debug.yml` sets `RUBY_DEBUG_OPEN: "true"` — Rails boots with an rdbg TCP socket on port 12345
 2. `RUBY_DEBUG_NONSTOP: "1"` prevents the process from blocking before VS Code attaches
 3. `WEB_CONCURRENCY: "0"` forces a single Puma process — otherwise breakpoints could trigger on a different worker than the one VS Code attached to
-4. `bin/debug` waits for the socket and `/up` health check, then fires `vscode://ruby.vscode-rdbg/attach` to connect VS Code
-5. `binding.break` in `DebugController#trigger` pauses the request — VS Code shows the full call stack
+4. `bin/debug` waits for the socket and `/up` health check, then triggers your IDE to attach (or prints instructions for manual attach with `--editor=manual`)
+5. `binding.break` in `DebugController#trigger` pauses the request — your IDE shows the full call stack
 
 ## License
 
