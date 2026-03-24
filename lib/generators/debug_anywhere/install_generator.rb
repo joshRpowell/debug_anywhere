@@ -5,7 +5,7 @@ module DebugAnywhere
     class InstallGenerator < Rails::Generators::Base
       source_root File.expand_path("templates", __dir__)
 
-      desc "Scaffold rdbg remote debugging for Rails + Docker + VS Code"
+      desc "Scaffold rdbg remote debugging for Rails + Docker (VS Code, RubyMine, Zed, or manual)"
 
       class_option :port,    type: :numeric, default: 12345,    desc: "rdbg TCP port"
       class_option :service, type: :string,  default: "web",    desc: "docker-compose service name"
