@@ -116,4 +116,54 @@ class UninstallGeneratorTest < Rails::Generators::TestCase
       assert_equal ".git\n", content
     end
   end
+
+  # ─── Partial install state ───────────────────────────────────────────────────
+
+  test "runs cleanly when only some debug_anywhere files are present" do
+    # Remove several files — simulates a partially complete install
+    File.delete "#{destination_root}/bin/debug"
+    File.delete "#{destination_root}/.vscode/launch.json"
+    # docker-compose.debug.yml and debug_controller.rb remain
+    run_generator
+    assert_no_file "docker-compose.debug.yml"
+    assert_no_file "app/controllers/debug_controller.rb"
+    assert_file "config/routes.rb"
+  end
+
+  test "does not remove .vscode directory when other files remain inside it" do
+    File.write "#{destination_root}/.vscode/settings.json", '{"editor.tabSize":2}'
+    run_generator
+    assert_no_file ".vscode/launch.json"
+    assert_file ".vscode/settings.json"
+  end
+
+  # ─── Route removal format variations ────────────────────────────────────────
+
+  test "removes debug route written with single quotes" do
+    File.write "#{destination_root}/config/routes.rb", <<~RUBY
+      Rails.application.routes.draw do
+
+        if Rails.env.development?
+          get 'debug', to: 'debug#trigger'
+        end
+      end
+    RUBY
+    run_generator
+    assert_file "config/routes.rb" do |content|
+      assert_no_match(/debug#trigger/, content)
+      assert_match "Rails.application.routes.draw do", content
+    end
+  end
+
+  # ─── .dockerignore edge cases ────────────────────────────────────────────────
+
+  test "preserves other .dockerignore entries after removing /.vscode/" do
+    File.write "#{destination_root}/.dockerignore", ".git\n/.vscode/\n.bundle\n"
+    run_generator
+    assert_file ".dockerignore" do |content|
+      assert_no_match(%r{/\.vscode/}, content)
+      assert_match ".git", content
+      assert_match ".bundle", content
+    end
+  end
 end

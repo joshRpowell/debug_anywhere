@@ -1,4 +1,7 @@
 require "test_helper"
+require "json"
+require "yaml"
+require "rexml/document"
 
 class InstallGeneratorTest < Rails::Generators::TestCase
   tests DebugAnywhere::Generators::InstallGenerator
@@ -354,5 +357,235 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     assert_file "bin/debug" do |content|
       assert_match "debug port 19999 is open", content
     end
+  end
+
+  # ─── Template structural validation ─────────────────────────────────────────
+
+  test "launch.json is valid JSON with required structure" do
+    run_generator
+    assert_file ".vscode/launch.json" do |content|
+      parsed = JSON.parse(content)
+      assert_equal "0.2.0", parsed["version"]
+      configs = parsed["configurations"]
+      assert_equal 1, configs.length
+      config = configs.first
+      assert_equal "rdbg", config["type"]
+      assert_equal "attach", config["request"]
+      assert_equal "localhost:12345", config["debugPort"]
+      assert_equal "/rails:${workspaceFolder}", config["localfsMap"]
+    end
+  end
+
+  test "launch.json debugPort reflects custom --port" do
+    run_generator ["--port=19999"]
+    assert_file ".vscode/launch.json" do |content|
+      parsed = JSON.parse(content)
+      assert_equal "localhost:19999", parsed["configurations"].first["debugPort"]
+    end
+  end
+
+  test "rubymine XML is well-formed with required elements" do
+    run_generator ["--editor=rubymine"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml" do |content|
+      doc = REXML::Document.new(content)
+      assert_not_nil doc.root, "XML should have a root element"
+      assert_equal "component", doc.root.name
+      assert_equal "ProjectRunConfigurationManager", doc.root.attributes["name"]
+      config = doc.root.elements["configuration"]
+      assert_not_nil config, "XML should have a <configuration> element"
+      assert_equal "Attach to Rails in Docker", config.attributes["name"]
+      port_opt = config.elements["option[@name='REMOTE_PORT']"]
+      assert_not_nil port_opt, "XML should have REMOTE_PORT option"
+      assert_equal "12345", port_opt.attributes["value"]
+      host_opt = config.elements["option[@name='REMOTE_HOST']"]
+      assert_not_nil host_opt, "XML should have REMOTE_HOST option"
+      assert_equal "localhost", host_opt.attributes["value"]
+    end
+  end
+
+  test "rubymine XML reflects custom --port" do
+    run_generator ["--editor=rubymine", "--port=19999"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml" do |content|
+      doc = REXML::Document.new(content)
+      port_opt = doc.root.elements["configuration/option[@name='REMOTE_PORT']"]
+      assert_equal "19999", port_opt.attributes["value"]
+    end
+  end
+
+  test "docker-compose.debug.yml is valid YAML with required structure" do
+    run_generator
+    assert_file "docker-compose.debug.yml" do |content|
+      parsed = YAML.safe_load(content)
+      assert parsed.key?("services"), "YAML should have a services key"
+      service_config = parsed["services"]["web"]
+      assert_not_nil service_config, "YAML should have a 'web' service"
+      env = service_config["environment"]
+      assert_equal "true", env["RUBY_DEBUG_OPEN"]
+      assert_equal "127.0.0.1", env["RUBY_DEBUG_HOST"]
+      assert_equal "12345", env["RUBY_DEBUG_PORT"]
+      assert_equal "1", env["RUBY_DEBUG_NONSTOP"]
+      assert_equal "0", env["WEB_CONCURRENCY"]
+      ports = service_config["ports"]
+      assert_includes ports, "127.0.0.1:12345:12345"
+    end
+  end
+
+  test "docker-compose.debug.yml YAML reflects custom --port and --service" do
+    run_generator ["--port=19999", "--service=app"]
+    assert_file "docker-compose.debug.yml" do |content|
+      parsed = YAML.safe_load(content)
+      assert parsed["services"].key?("app"), "Service 'app' should be present"
+      refute parsed["services"].key?("web"), "Default 'web' service should not appear"
+      assert_equal "19999", parsed["services"]["app"]["environment"]["RUBY_DEBUG_PORT"]
+      assert_includes parsed["services"]["app"]["ports"], "127.0.0.1:19999:19999"
+    end
+  end
+
+  # ─── editor × runtime combination matrix ─────────────────────────────────────
+
+  test "--editor=vscode --runtime=podman creates launch.json and uses podman" do
+    run_generator ["--editor=vscode", "--runtime=podman"]
+    assert_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_file "bin/debug" do |content|
+      assert_match "podman compose", content
+      assert_no_match(/docker compose/, content)
+    end
+  end
+
+  test "--editor=rubymine --runtime=docker creates XML and uses docker" do
+    run_generator ["--editor=rubymine", "--runtime=docker"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_no_file ".vscode/launch.json"
+    assert_file "bin/debug" do |content|
+      assert_match "docker compose", content
+    end
+  end
+
+  test "--editor=rubymine --runtime=podman creates XML and uses podman" do
+    run_generator ["--editor=rubymine", "--runtime=podman"]
+    assert_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_no_file ".vscode/launch.json"
+    assert_file "bin/debug" do |content|
+      assert_match "podman compose", content
+      assert_no_match(/docker compose/, content)
+    end
+  end
+
+  test "--editor=zed --runtime=docker creates launch.json and uses docker" do
+    run_generator ["--editor=zed", "--runtime=docker"]
+    assert_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_file "bin/debug" do |content|
+      assert_match "docker compose", content
+    end
+  end
+
+  test "--editor=zed --runtime=podman creates launch.json and uses podman" do
+    run_generator ["--editor=zed", "--runtime=podman"]
+    assert_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_file "bin/debug" do |content|
+      assert_match "podman compose", content
+      assert_no_match(/docker compose/, content)
+    end
+  end
+
+  test "--editor=manual --runtime=docker creates no IDE config and uses docker" do
+    run_generator ["--editor=manual", "--runtime=docker"]
+    assert_no_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_file "bin/debug" do |content|
+      assert_match "docker compose", content
+    end
+  end
+
+  test "--editor=manual --runtime=podman creates no IDE config and uses podman" do
+    run_generator ["--editor=manual", "--runtime=podman"]
+    assert_no_file ".vscode/launch.json"
+    assert_no_file ".idea/runConfigurations/debug_anywhere.xml"
+    assert_file "bin/debug" do |content|
+      assert_match "podman compose", content
+      assert_no_match(/docker compose/, content)
+    end
+  end
+
+  # ─── Port boundary values ────────────────────────────────────────────────────
+
+  test "port 1024 is valid (lower boundary)" do
+    run_generator ["--port=1024"]
+    assert_file "bin/debug" do |content|
+      assert_match "wait_for_port 1024", content
+    end
+  end
+
+  test "port 65535 is valid (upper boundary)" do
+    run_generator ["--port=65535"]
+    assert_file "bin/debug" do |content|
+      assert_match "wait_for_port 65535", content
+    end
+  end
+
+  test "port 1023 is invalid (just below lower boundary)" do
+    assert_raises(Thor::Error) { run_generator ["--port=1023"], debug: true }
+  end
+
+  test "port 65536 is invalid (just above upper boundary)" do
+    assert_raises(Thor::Error) { run_generator ["--port=65536"], debug: true }
+  end
+
+  test "port 0 is invalid" do
+    assert_raises(Thor::Error) { run_generator ["--port=0"], debug: true }
+  end
+
+  test "port -1 is invalid" do
+    assert_raises(Thor::Error) { run_generator ["--port=-1"], debug: true }
+  end
+
+  # ─── Gemfile edge cases ──────────────────────────────────────────────────────
+
+  test "accepts Gemfile with debug gem in single quotes" do
+    File.write "#{destination_root}/Gemfile", <<~RUBY
+      source "https://rubygems.org"
+      gem 'debug', platforms: %i[mri windows]
+    RUBY
+    run_generator
+    assert_file "bin/debug"
+  end
+
+  test "accepts Gemfile with debug gem followed by inline options" do
+    File.write "#{destination_root}/Gemfile", <<~RUBY
+      source "https://rubygems.org"
+      gem "debug", platforms: %i[mri windows], require: "debug/prelude"
+    RUBY
+    run_generator
+    assert_file "bin/debug"
+  end
+
+  # ─── .ruby-version edge cases ───────────────────────────────────────────────
+
+  test "raises error for pre-release .ruby-version (e.g. 3.4.7-preview1)" do
+    File.write "#{destination_root}/.ruby-version", "3.4.7-preview1"
+    assert_raises(Thor::Error) { run_generator [], debug: true }
+  end
+
+  test "raises error for truncated .ruby-version missing patch level (e.g. 3.4)" do
+    File.write "#{destination_root}/.ruby-version", "3.4"
+    assert_raises(Thor::Error) { run_generator [], debug: true }
+  end
+
+  test "raises error for truffleruby .ruby-version" do
+    File.write "#{destination_root}/.ruby-version", "truffleruby-23.0.0"
+    assert_raises(Thor::Error) { run_generator [], debug: true }
+  end
+
+  test "raises error for empty .ruby-version file" do
+    File.write "#{destination_root}/.ruby-version", ""
+    assert_raises(Thor::Error) { run_generator [], debug: true }
+  end
+
+  test "raises error for whitespace-only .ruby-version file" do
+    File.write "#{destination_root}/.ruby-version", "   \n"
+    assert_raises(Thor::Error) { run_generator [], debug: true }
   end
 end
