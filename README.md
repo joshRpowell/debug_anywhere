@@ -82,7 +82,7 @@ end
 
 | Option | Default | Description |
 |---|---|---|
-| `--port` | `12345` | rdbg TCP port |
+| `--port` | `12345` | rdbg TCP port (1024–65535) |
 | `--service` | `web` | docker-compose service name to target |
 | `--editor` | `vscode` | IDE config to generate: `vscode`, `rubymine`, `zed`, `manual` (skips IDE config; attach manually to `localhost:{port}`) |
 | `--runtime` | `docker` | Container runtime: `docker` or `podman` |
