@@ -211,8 +211,8 @@ class InstallGeneratorTest < Rails::Generators::TestCase
   test "docker-compose.debug.yml never binds debug port to 0.0.0.0" do
     run_generator
     assert_file "docker-compose.debug.yml" do |content|
-      assert_no_match(/0\.0\.0\.0.*12345/, content)
-      assert_no_match(/12345.*0\.0\.0\.0/, content)
+      assert_no_match(/0\.0\.0\.0:\d+:\d+/, content)
+      assert_no_match(/\d+:0\.0\.0\.0:\d+/, content)
     end
   end
 
