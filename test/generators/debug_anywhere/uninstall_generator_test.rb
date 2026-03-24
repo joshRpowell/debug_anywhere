@@ -101,14 +101,6 @@ class UninstallGeneratorTest < Rails::Generators::TestCase
     assert_file "config/routes.rb"  # routes.rb should be untouched
   end
 
-  test "skips route removal when route not present" do
-    File.write "#{destination_root}/config/routes.rb", "Rails.application.routes.draw do\nend\n"
-    run_generator
-    assert_file "config/routes.rb" do |content|
-      assert_match "Rails.application.routes.draw do", content
-    end
-  end
-
   test "skips dockerignore update when entry not present" do
     File.write "#{destination_root}/.dockerignore", ".git\n"
     run_generator

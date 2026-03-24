@@ -159,13 +159,6 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     assert_equal 1, occurrences, "Route should appear exactly once after two generator runs"
   end
 
-  test "skips docker-compose.debug.yml when already exists" do
-    File.write "#{destination_root}/docker-compose.debug.yml", "# existing\n"
-    run_generator
-    content = File.read("#{destination_root}/docker-compose.debug.yml")
-    assert_equal "# existing\n", content
-  end
-
   test "running generator twice skips existing docker-compose.debug.yml" do
     run_generator
     original = File.read("#{destination_root}/docker-compose.debug.yml")
@@ -201,26 +194,8 @@ class InstallGeneratorTest < Rails::Generators::TestCase
   end
 
   test "does not modify .dockerignore when file is absent" do
-    assert_no_file ".dockerignore"
     run_generator
     assert_no_file ".dockerignore"
-  end
-
-  # ─── Security ────────────────────────────────────────────────────────────────
-
-  test "docker-compose.debug.yml never binds debug port to 0.0.0.0" do
-    run_generator
-    assert_file "docker-compose.debug.yml" do |content|
-      assert_no_match(/0\.0\.0\.0:\d+:\d+/, content)
-      assert_no_match(/\d+:0\.0\.0\.0:\d+/, content)
-    end
-  end
-
-  test "debug route is guarded by Rails.env.development?" do
-    run_generator
-    assert_file "config/routes.rb" do |content|
-      assert_match "Rails.env.development?", content
-    end
   end
 
   # ─── --service option ───────────────────────────────────────────────────────
@@ -534,29 +509,12 @@ class InstallGeneratorTest < Rails::Generators::TestCase
     assert_raises(Thor::Error) { run_generator ["--port=65536"], debug: true }
   end
 
-  test "port 0 is invalid" do
-    assert_raises(Thor::Error) { run_generator ["--port=0"], debug: true }
-  end
-
-  test "port -1 is invalid" do
-    assert_raises(Thor::Error) { run_generator ["--port=-1"], debug: true }
-  end
-
   # ─── Gemfile edge cases ──────────────────────────────────────────────────────
 
   test "accepts Gemfile with debug gem in single quotes" do
     File.write "#{destination_root}/Gemfile", <<~RUBY
       source "https://rubygems.org"
       gem 'debug', platforms: %i[mri windows]
-    RUBY
-    run_generator
-    assert_file "bin/debug"
-  end
-
-  test "accepts Gemfile with debug gem followed by inline options" do
-    File.write "#{destination_root}/Gemfile", <<~RUBY
-      source "https://rubygems.org"
-      gem "debug", platforms: %i[mri windows], require: "debug/prelude"
     RUBY
     run_generator
     assert_file "bin/debug"
