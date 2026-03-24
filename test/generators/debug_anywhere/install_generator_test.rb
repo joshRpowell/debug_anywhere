@@ -244,7 +244,7 @@ class InstallGeneratorTest < Rails::Generators::TestCase
   end
 
   test "raises error for invalid service name" do
-    assert_raises(Thor::Error) { run_generator ["--service=invalid service!"], debug: true }
+    assert_raises(Thor::Error) { run_generator ["--service=invalid!"], debug: true }
   end
 
   test "raises error when debug gem is not in Gemfile" do
