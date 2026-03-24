@@ -27,13 +27,14 @@ rails g debug_anywhere:install
 ## What Gets Generated
 
 ```
-create  .vscode/launch.json       VS Code rdbg attach configuration
-create  bin/debug                 Orchestration script (chmod +x)
-create  docker-compose.yml        Debug-ready compose config (if absent)
-create  Dockerfile.dev            Development image (if absent)
-insert  config/routes.rb          GET /debug route (development only)
+create  .vscode/launch.json           VS Code rdbg attach configuration
+create  bin/debug                     Orchestration script (chmod +x)
+create  docker-compose.debug.yml      Debug override (RUBY_DEBUG_OPEN, port mapping)
+create  docker-compose.yml            Base compose config (if absent)
+create  Dockerfile.dev                Development image (if absent)
+insert  config/routes.rb              GET /debug route (development only)
 create  app/controllers/debug_controller.rb
-append  .dockerignore             Excludes .vscode/ from Docker build
+append  .dockerignore                 Excludes .vscode/ from Docker build
 ```
 
 ## Usage
@@ -64,6 +65,7 @@ end
 
 - Docker (or Podman) with `compose` CLI
 - `nc` (netcat) — used by `bin/debug` for port readiness checks
+- `curl` — used by `bin/debug` for web server health checks
 - The `debug` gem in your Gemfile (included by default in Rails 7.1+):
 
   ```ruby
